@@ -116,7 +116,7 @@ body.sidebar-collapsed .sidebar{width:0!important;min-width:0!important;overflow
 <div class="palette-wrap"><button id="minifontbutton" title="Cor da fonte">A 🎨</button><div class="color-pop hidden" id="minifontpop"><strong>Cor da fonte</strong><div class="swatches" id="minifontswatches"></div></div></div>
 <div class="palette-wrap"><button id="minimarkbutton" title="Marca-texto">🖍</button><div class="color-pop hidden" id="minimarkpop"><strong>Marca-texto (inclui remover)</strong><div class="swatches" id="minimarkswatches"></div></div></div>
 <button data-mini="removeFormat" title="Remover formatação">Tx ✕</button><button id="minicomment" title="Comentar seleção">💬 Comentário</button></div><div id="editor" class="editor" contenteditable="true" spellcheck="true" lang="pt-BR"></div><div class="footer"><span id="stats">0 palavras · 0 caracteres</span><span>Salvamento automático · Espaçamento 1,5</span></div></div></div></div></main></div><div id="context" class="context hidden"></div><div id="modalroot"></div><div id="comments" class="comments hidden"></div><script>
-window.atlasStorage=(()=>{let promise;function database(){return promise??=new Promise((resolve,reject)=>{const req=indexedDB.open('atlas-notes-v2',1);req.onupgradeneeded=()=>{const db=req.result;db.createObjectStore('state');db.createObjectStore('images')};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}async function run(store,mode,fn){const db=await database();return new Promise((resolve,reject)=>{const tx=db.transaction(store,mode);const req=fn(tx.objectStore(store));req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);tx.onerror=()=>reject(tx.error)})}return {load:()=>run('state','readonly',s=>s.get('notes')),save:data=>run('state','readwrite',s=>s.put(data,'notes')),putImage:(id,blob)=>run('images','readwrite',s=>s.put(blob,id)),getImage:id=>run('images','readonly',s=>s.get(id))}})();
+window.atlasStorage=(()=>{let promise;function database(){return promise??=new Promise((resolve,reject)=>{const req=indexedDB.open('atlas-notes-v2',1);req.onupgradeneeded=()=>{const db=req.result;db.createObjectStore('state');db.createObjectStore('images')};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}async function run(store,mode,fn){const db=await database();return new Promise((resolve,reject)=>{const tx=db.transaction(store,mode);const req=fn(tx.objectStore(store));req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);tx.onerror=()=>reject(tx.error)})}return {load:()=>run('state','readonly',s=>s.get('notes')),save:data=>run('state','readwrite',s=>s.put(data,'notes')),putImage:(id,blob)=>run('images','readwrite',s=>s.put(blob,id)),getImage:id=>run('images','readonly',s=>s.get(id)),loadBaseline:()=>run('state','readonly',s=>s.get('drive-baseline')),saveBaseline:value=>run('state','readwrite',s=>s.put(value,'drive-baseline')),loadImageUpload:key=>run('state','readonly',s=>s.get('image-upload:'+key)),saveImageUpload:(key,id)=>run('state','readwrite',s=>s.put(id,'image-upload:'+key))}})();
 window.atlasImages=(()=>{const urls=new Map();let fetchRemote=null;async function hydrate(root){if(!root)return;for(const img of root.querySelectorAll('img[data-atlas-drive-id]')){const id=img.dataset.atlasDriveId;if(urls.has(id)){img.src=urls.get(id);continue}try{let blob=await window.atlasStorage.getImage(id);if(!blob&&typeof window.atlasImages.fetchRemote==='function'){blob=await window.atlasImages.fetchRemote(id);await window.atlasStorage.putImage(id,blob).catch(()=>{})}if(blob){const url=URL.createObjectURL(blob);urls.set(id,url);if(img.isConnected)img.src=url}else img.alt='Imagem disponível após conectar ao Google Drive'}catch(e){console.warn('Imagem não carregada',id,e);img.alt='Conecte o Google Drive para carregar esta imagem'}}}async function cacheConverted(before,after){for(let i=0;i<after.nodes.length;i++){const n=after.nodes[i],orig=before.nodes.find(x=>x.id===n.id);if(!orig?.html||!n.html||!n.html.includes('data-atlas-drive-id'))continue;const a=new DOMParser().parseFromString(orig.html,'text/html').querySelectorAll('img');const b=new DOMParser().parseFromString(n.html,'text/html').querySelectorAll('img');for(let j=0;j<Math.min(a.length,b.length);j++){const id=b[j].dataset.atlasDriveId,src=a[j].getAttribute('src');if(id&&src?.startsWith('data:image/')){const blob=await(await fetch(src)).blob();await window.atlasStorage.putImage(id,blob).catch(()=>{})}}}}return {hydrate,cacheConverted,fetchRemote}})();
 </script>
 <script>
@@ -315,29 +315,120 @@ if(e.target.tagName==='IMG'){const fig=e.target.closest('figure');if(fig){closeI
 const CLIENT_ID='100785073742-lgs2dvglqkl0080kej6lh8qvpcq1jm9c.apps.googleusercontent.com';
 const SCOPE='https://www.googleapis.com/auth/drive.file';
 const API='https://www.googleapis.com/drive/v3/files';
-const FOLDER='Atlas Notes';const FILE='atlas-notes-sync.json';
-const el=document.createElement('section');el.className='atlas-drive drive-collapsed';el.innerHTML=`<button type="button" id="driveToggle" class="drive-toggle" aria-expanded="false" aria-controls="driveDetails"><strong>☁ Google Drive</strong><span class="drive-chevron">⌄</span></button><div id="driveDetails" class="drive-details"><div class="drive-status" id="driveStatus">Não conectado · suas notas continuam salvas neste navegador</div><div class="drive-actions"><button id="driveConnect" class="drive-primary">Conectar Google</button><button id="driveUpload" hidden>↑ Enviar notas</button><button id="driveDownload" hidden>↓ Baixar notas</button><button id="driveDisconnect" hidden>Sair</button></div><small id="driveHint">A primeira sincronização é manual. Depois, alterações locais são enviadas automaticamente. Não edite em dois dispositivos ao mesmo tempo.</small></div>`;
+const FOLDER='Atlas Notes', FILE='atlas-notes-sync.json';
+const el=document.createElement('section');el.className='atlas-drive drive-collapsed';
+el.innerHTML=`<button type="button" id="driveToggle" class="drive-toggle" aria-expanded="false" aria-controls="driveDetails"><strong>☁ Google Drive</strong><span class="drive-chevron">⌄</span></button><div id="driveDetails" class="drive-details"><div class="drive-status" id="driveStatus" role="status">Aguardando conexão com Google Drive</div><div class="drive-actions"><button id="driveConnect" class="drive-primary">Conectar Google</button><button id="driveUpload" hidden>↑ Enviar notas</button><button id="driveDownload" hidden>↓ Baixar notas</button><button id="driveDisconnect" hidden>Sair</button></div><small id="driveHint">A sincronização é automática após conectar. Se existirem versões diferentes, nenhuma será substituída sem sua confirmação.</small></div>`;
 const side=document.querySelector('.sidebottom');side.parentNode.insertBefore(el,side);
-const $=id=>document.getElementById(id);const driveToggle=$('driveToggle');function setDriveExpanded(expanded){el.classList.toggle('drive-collapsed',!expanded);driveToggle.setAttribute('aria-expanded',String(expanded));driveToggle.querySelector('.drive-chevron').textContent=expanded?'⌃':'⌄';try{localStorage.setItem('atlas-drive-expanded',expanded?'1':'0')}catch(e){}}driveToggle.onclick=()=>setDriveExpanded(el.classList.contains('drive-collapsed'));try{if(localStorage.getItem('atlas-drive-expanded')==='1')setDriveExpanded(true)}catch(e){}let token=null,tokenClient=null,folderId=null,fileId=null,ready=false,busy=false,dirty=false,uploadTimer=null,expiry=0;
-window.atlasImages.fetchRemote=async id=>{const r=await fetch(API+'/'+encodeURIComponent(id)+'?alt=media',{headers:{Authorization:'Bearer '+token}});if(!r.ok)throw Error('Imagem '+id+': '+r.status);return r.blob()};function status(msg,error=false){$('driveStatus').textContent=msg;$('driveStatus').classList.toggle('error',error)}
-function controls(connected){$('driveConnect').hidden=connected;for(const id of ['driveUpload','driveDownload','driveDisconnect'])$(id).hidden=!connected}
-function fail(e){status('Erro: '+(e?.message||String(e)),true);console.error('Atlas Drive:',e)}
-async function request(url,opts={}){if(!token||Date.now()>expiry)throw Error('Sessão Google expirada. Clique em Conectar Google novamente.');let res=await fetch(url,{...opts,headers:{Authorization:'Bearer '+token,...(opts.headers||{})}});if(!res.ok){let body=await res.text();throw Error('Google Drive HTTP '+res.status+': '+body.slice(0,240))}if(res.status===204)return null;const type=res.headers.get('content-type')||'';return type.includes('json')?res.json():res.text()}
-function escapeQuery(v){return v.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}
-async function findFile(name,mime,parent){let q="name = '"+escapeQuery(name)+"' and trashed = false";if(mime)q+=" and mimeType = '"+mime+"'";if(parent)q+=" and '"+parent+"' in parents";let data=await request(API+'?'+new URLSearchParams({q,fields:'nextPageToken,files(id,name,mimeType,modifiedTime)',page_size:'100'}));return data.files?.[0]||null}
-async function ensureFolder(){if(folderId)return folderId;let f=await findFile(FOLDER,'application/vnd.google-apps.folder');if(!f){f=await request(API+'?fields=id,name',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:FOLDER,mimeType:'application/vnd.google-apps.folder'})})}folderId=f.id;return folderId}
-async function findRemote(){await ensureFolder();let f=await findFile(FILE,null,folderId);fileId=f?.id||null;return f}
-async function uploadImage(dataURL){const response=await fetch(dataURL);const blob=await response.blob();const name='imagem-'+crypto.randomUUID();const boundary='atlasimg_'+Date.now();const metadata=JSON.stringify({name,mimeType:blob.type||'image/png',parents:[folderId]});const multipart=new Blob(['--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n',metadata,'\r\n--'+boundary+'\r\nContent-Type: '+(blob.type||'image/png')+'\r\n\r\n',blob,'\r\n--'+boundary+'--'],{type:'multipart/related; boundary='+boundary});const created=await request('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+boundary},body:multipart});return created.id}
-async function externalizeImages(data){await ensureFolder();let converted=0;for(const n of data.nodes){if(n.type!=='page'||!n.html||!n.html.includes('data:image/'))continue;const doc=new DOMParser().parseFromString(n.html,'text/html');for(const img of doc.querySelectorAll('img[src^="data:image/"]')){status('Enviando imagem '+(converted+1)+' ao Drive...');const id=await uploadImage(img.getAttribute('src'));img.dataset.atlasDriveId=id;img.setAttribute('src','data:,');converted++}if(converted)n.html=doc.body.innerHTML}return converted}
-async function upload(){if(!ready||busy||!token)return;busy=true;dirty=false;status('Enviando notas ao Google Drive...');try{let data=window.atlasDriveBridge.get();const count=await externalizeImages(data);let body=JSON.stringify({format:'atlas-notes-drive-v1',savedAt:new Date().toISOString(),data});let blob=new Blob([body],{type:'application/json'});let f=await findRemote();if(f){await request('https://www.googleapis.com/upload/drive/v3/files/'+encodeURIComponent(fileId)+'?uploadType=media',{method:'PATCH',headers:{'Content-Type':'application/json'},body:blob})}else{const boundary='atlas_'+Date.now();let metadata=JSON.stringify({name:FILE,mimeType:'application/json',parents:[folderId]});let multipart=new Blob(['--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n',metadata,'\r\n--'+boundary+'\r\nContent-Type: application/json\r\n\r\n',blob,'\r\n--'+boundary+'--'],{type:'multipart/related; boundary='+boundary});let created=await request('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+boundary},body:multipart});fileId=created.id}if(count){await window.atlasImages.cacheConverted(window.atlasDriveBridge.get(),data);window.atlasDriveBridge.commitImageRefs(data);window.atlasImages.hydrate(document.getElementById('editor'))}status('✓ Sincronizado · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}))}catch(e){dirty=true;fail(e)}finally{busy=false;if(dirty&&ready)queueUpload()}}
-function queueUpload(){if(!ready||!token)return;dirty=true;clearTimeout(uploadTimer);uploadTimer=setTimeout(()=>{if(busy){queueUpload();return}upload()},2200)}
-window.atlasDriveLocalChanged=()=>queueUpload();
-async function download(){if(busy)return;busy=true;try{let f=await findRemote();if(!f){status('Não há backup na pasta Atlas Notes. Use Enviar notas primeiro.');return}let text=await request(API+'/'+encodeURIComponent(fileId)+'?alt=media');let parsed=typeof text==='string'?JSON.parse(text):text;if(parsed.format!=='atlas-notes-drive-v1'||!Array.isArray(parsed.data?.nodes))throw Error('Arquivo remoto não é um backup válido do Atlas Notes.');if(!confirm('Substituir TODAS as notas deste navegador pelas notas do Google Drive?\n\nExporte um backup JSON antes se quiser preservar as notas locais.'))return;clearTimeout(uploadTimer);ready=false;window.atlasDriveBridge.load(parsed.data);window.atlasImages.hydrate(document.getElementById('editor'));ready=true;dirty=false;status('✓ Notas recuperadas do Drive · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}))}catch(e){fail(e)}finally{busy=false}}
-function login(){if(!window.google?.accounts?.oauth2){status('Carregando o login Google. Aguarde alguns segundos e tente novamente.');return}if(!tokenClient)tokenClient=google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:SCOPE,callback:async r=>{if(r.error){fail(Error(r.error));return}token=r.access_token;expiry=Date.now()+(Number(r.expires_in||3500)-60)*1000;controls(true);window.atlasImages.hydrate(document.getElementById('editor'));status('Conectado. Verificando sua pasta no Drive...');try{let remote=await findRemote();if(remote){ready=false;status('Backup encontrado no Drive. Escolha Baixar notas ou Enviar notas.');$('driveHint').textContent='Atenção: Enviar notas substitui a versão no Drive. Baixar notas substitui as notas deste navegador. Faça um backup JSON antes.'}else{ready=false;status('Pasta pronta. Clique em Enviar notas para criar seu primeiro backup.')}}catch(e){fail(e)}}});tokenClient.requestAccessToken({prompt:'consent'})}
-$('driveConnect').onclick=login;
-$('driveUpload').onclick=async()=>{if(busy)return;try{let remote=await findRemote();if(remote&&!ready&&!confirm('Já existe um backup no Drive. Deseja SUBSTITUÍ-LO pelas notas deste navegador?'))return;ready=true;await upload()}catch(e){fail(e)}};
-$('driveDownload').onclick=download;
-$('driveDisconnect').onclick=()=>{clearTimeout(uploadTimer);ready=false;dirty=false;if(token&&window.google?.accounts?.oauth2)google.accounts.oauth2.revoke(token,()=>{});token=null;folderId=null;fileId=null;controls(false);status('Desconectado · notas locais preservadas')};
+const $=id=>document.getElementById(id);
+function expand(v){el.classList.toggle('drive-collapsed',!v);$('driveToggle').setAttribute('aria-expanded',String(v));el.querySelector('.drive-chevron').textContent=v?'⌃':'⌄';try{localStorage.setItem('atlas-drive-expanded',v?'1':'0')}catch{}}
+$('driveToggle').onclick=()=>expand(el.classList.contains('drive-collapsed'));
+try{if(localStorage.getItem('atlas-drive-expanded')==='1')expand(true)}catch{}
+let token=null,expiry=0,tokenClient=null,folderId=null,fileId=null,ready=false,busy=false,dirty=false,timer=null,baseline=null,remoteVersion=null,checking=false;
+const BASE_KEY='atlas-drive-baseline-v2';
+// The baseline lives in IndexedDB, not localStorage, and records the last confirmed cloud snapshot.
+async function readBase(){try{return await window.atlasStorage.loadBaseline()}catch{return null}}
+async function writeBase(hash){baseline=hash;try{await window.atlasStorage.saveBaseline(hash)}catch(e){console.warn('Não foi possível registrar a versão sincronizada',e)}}
+function status(message,error=false){$('driveStatus').textContent=message;$('driveStatus').classList.toggle('error',error)}
+function controls(on){$('driveConnect').hidden=on;['driveUpload','driveDownload','driveDisconnect'].forEach(x=>$(x).hidden=!on)}
+function fail(e){console.error('Atlas Drive',e);status('⚠ '+(e?.message||String(e)),true)}
+function authOk(){return !!token&&Date.now()<expiry}
+async function req(url,options={}){if(!authOk())throw Error('Autorização Google expirada. Clique em Conectar Google.');const res=await fetch(url,{...options,headers:{Authorization:'Bearer '+token,...options.headers}});if(!res.ok)throw Error('Drive HTTP '+res.status+': '+(await res.text()).slice(0,220));if(res.status===204)return null;const ct=res.headers.get('content-type')||'';return ct.includes('json')?res.json():res.text()}
+const q=s=>s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+async function find(name,mime,parent){let query="name = '"+q(name)+"' and trashed = false";if(mime)query+=" and mimeType = '"+mime+"'";if(parent)query+=" and '"+parent+"' in parents";const d=await req(API+'?'+new URLSearchParams({q:query,fields:'nextPageToken,files(id,name,mimeType,modifiedTime,version)',pageSize:'100'}));return d.files?.[0]||null}
+async function folder(){if(folderId)return folderId;let f=await find(FOLDER,'application/vnd.google-apps.folder');if(!f)f=await req(API+'?fields=id',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:FOLDER,mimeType:'application/vnd.google-apps.folder'})});folderId=f.id;return folderId}
+async function remote(){await folder();const f=await find(FILE,null,folderId);fileId=f?.id||null;remoteVersion=f?.version||null;return f}
+async function remoteData(){const f=await remote();if(!f)return null;const raw=await req(API+'/'+encodeURIComponent(f.id)+'?alt=media');const obj=typeof raw==='string'?JSON.parse(raw):raw;if(obj.format!=='atlas-notes-drive-v1'||!Array.isArray(obj.data?.nodes))throw Error('O backup do Drive não é compatível. Nenhuma nota foi alterada.');return obj.data}
+function stable(data){return JSON.stringify(data)}
+async function hash(data){const bytes=new TextEncoder().encode(stable(data));const digest=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+function local(){return window.atlasDriveBridge.get()}
+function pauseConflict(message){ready=false;dirty=true;clearTimeout(timer);status('⚠ '+message+' Escolha Enviar ou Baixar após fazer um backup JSON.',true);$('driveHint').textContent='Conflito: as versões local e remota diferem. Enviar substitui a versão remota; Baixar substitui a local. Exporte backup JSON antes.'}
+// Images are content-addressed. A confirmed upload is recorded immediately, not
+// only after the whole notes backup succeeds. Existing Drive files are reused.
+const imageUploadInFlight=new Map();
+async function imageFingerprint(blob){
+ const bytes=await blob.arrayBuffer();
+ const digest=await crypto.subtle.digest('SHA-256',bytes);
+ return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function uploadImage(dataURL){
+ const blob=await(await fetch(dataURL)).blob();
+ const fingerprint=await imageFingerprint(blob);
+ const name='atlas-img-sha256-'+fingerprint;
+ if(imageUploadInFlight.has(fingerprint))return imageUploadInFlight.get(fingerprint);
+ const job=(async()=>{
+  // The mapping survives failed/interrupted note uploads.
+  let id=await window.atlasStorage.loadImageUpload(fingerprint).catch(()=>null);
+  if(id){
+   try{await req(API+'/'+encodeURIComponent(id)+'?fields=id');return id}
+   catch(e){if(!String(e.message).includes('HTTP 404'))throw e}
+  }
+  // Also recover images uploaded before the local mapping was written, and
+  // deduplicate equal images inserted on different devices.
+  const existing=await find(name,null,folderId);
+  if(existing?.id){id=existing.id}
+  else{
+   const boundary='atlasimg_'+crypto.randomUUID();
+   const metadata=JSON.stringify({name,mimeType:blob.type||'image/png',parents:[folderId],description:'Atlas Notes image SHA-256 '+fingerprint});
+   const multipart=new Blob(['--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n',metadata,'\r\n--'+boundary+'\r\nContent-Type: '+(blob.type||'image/png')+'\r\n\r\n',blob,'\r\n--'+boundary+'--'],{type:'multipart/related; boundary='+boundary});
+   const result=await req('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+boundary},body:multipart});
+   id=result.id;
+  }
+  // Record before updating notes JSON so a retry reuses the same file.
+  await window.atlasStorage.saveImageUpload(fingerprint,id);
+  return id;
+ })();
+ imageUploadInFlight.set(fingerprint,job);
+ try{return await job}finally{imageUploadInFlight.delete(fingerprint)}
+}
+async function externalize(data){
+ await folder();let converted=0;
+ for(const n of data.nodes){
+  if(n.type!=='page'||!n.html||!n.html.includes('data:image/'))continue;
+  const doc=new DOMParser().parseFromString(n.html,'text/html');let changed=false;
+  for(const img of doc.querySelectorAll('img[src^="data:image/"]')){
+   status('Verificando imagem '+(converted+1)+' no Drive…');
+   const id=await uploadImage(img.getAttribute('src'));
+   img.dataset.atlasDriveId=id;img.setAttribute('src','data:,');
+   converted++;changed=true;
+  }
+  if(changed)n.html=doc.body.innerHTML;
+ }
+ return converted;
+}
+async function send(force=false){if(busy||!authOk()||(!ready&&!force))return;busy=true;dirty=false;clearTimeout(timer);try{
+ status('Verificando alterações no Drive…');const current=local(),localHash=await hash(current);const onCloud=await remoteData(),cloudHash=onCloud?await hash(onCloud):null;
+ if(onCloud&&cloudHash!==localHash&&(!baseline||cloudHash!==baseline)&&!force){pauseConflict('Outra versão foi encontrada no Drive.');return}
+ if(onCloud&&cloudHash===localHash){await writeBase(localHash);ready=true;status('✓ Sincronizado com Google Drive');return}
+ const outgoing=structuredClone(current);const count=await externalize(outgoing);
+ // Check again immediately before the write; do not overwrite an intervening cloud change.
+ const verify=await remoteData(),verifyHash=verify?await hash(verify):null;
+ if(verifyHash!==cloudHash&&!force){pauseConflict('O Drive mudou durante o envio.');return}
+ const body=new Blob([JSON.stringify({format:'atlas-notes-drive-v1',savedAt:new Date().toISOString(),data:outgoing})],{type:'application/json'});
+ if(fileId){await req('https://www.googleapis.com/upload/drive/v3/files/'+encodeURIComponent(fileId)+'?uploadType=media',{method:'PATCH',headers:{'Content-Type':'application/json'},body})}
+ else{const boundary='atlas_'+crypto.randomUUID(),meta=JSON.stringify({name:FILE,mimeType:'application/json',parents:[folderId]});const multi=new Blob(['--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n',meta,'\r\n--'+boundary+'\r\nContent-Type: application/json\r\n\r\n',body,'\r\n--'+boundary+'--'],{type:'multipart/related; boundary='+boundary});const created=await req('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+boundary},body:multi});fileId=created.id}
+ if(count){await window.atlasImages.cacheConverted(current,outgoing);if(await hash(local())===localHash){window.atlasDriveBridge.commitImageRefs(outgoing);await window.atlasImages.hydrate(document.getElementById('editor'))}else{dirty=true;status('Imagens enviadas; há alterações novas aguardando sincronização.')}}
+ await writeBase(await hash(outgoing));ready=true;
+ if(!dirty)status('✓ Sincronizado com Google Drive · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}));
+ }catch(e){dirty=true;fail(e)}finally{busy=false;if(dirty&&ready&&authOk())queue()}}
+function queue(){dirty=true;if(!ready||!authOk())return;clearTimeout(timer);timer=setTimeout(()=>{if(busy){queue();return}send()},2500)}
+window.atlasDriveLocalChanged=()=>queue();
+async function applyRemote(data){ready=false;clearTimeout(timer);window.atlasDriveBridge.load(data);await window.atlasStorage.save(data);await writeBase(await hash(data));dirty=false;ready=true;window.atlasImages.hydrate(document.getElementById('editor'));status('✓ Notas atualizadas do Google Drive · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}))}
+async function reconcile(){if(busy||checking||!authOk())return;checking=true;try{const data=await remoteData(),mine=local(),mineHash=await hash(mine),cloudHash=data?await hash(data):null;
+ if(!data){ready=true;await send();return}
+ if(mineHash===cloudHash){ready=true;dirty=false;await writeBase(mineHash);status('✓ Sincronizado com Google Drive');return}
+ if(baseline===mineHash){await applyRemote(data);return}
+ if(baseline===cloudHash){ready=true;queue();return}
+ pauseConflict('Existem alterações diferentes neste dispositivo e no Google Drive.');
+ }catch(e){fail(e)}finally{checking=false}}
+async function poll(){if(!authOk()||busy||checking)return;if(!ready)return;try{const data=await remoteData();if(!data)return;const cloudHash=await hash(data);if(cloudHash!==baseline){await reconcile()}}catch(e){fail(e)}}
+async function downloadManual(){if(busy)return;try{const data=await remoteData();if(!data){status('Não há backup no Drive.');return}if(!confirm('Baixar notas substituirá todas as anotações deste navegador. Exporte antes um backup JSON. Deseja continuar?'))return;await applyRemote(data)}catch(e){fail(e)}}
+async function uploadManual(){if(busy)return;if(!confirm('Enviar notas substituirá o backup do Google Drive. Confirme que exportou um backup JSON e deseja continuar.'))return;ready=true;await send(true)}
+function connect(interactive=true){if(!window.google?.accounts?.oauth2){if(interactive)status('Login Google carregando. Tente novamente em alguns segundos.');return}if(!tokenClient)tokenClient=google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:SCOPE,callback:async r=>{if(r.error){if(interactive)fail(Error(r.error));return}token=r.access_token;expiry=Date.now()+Math.max(60,Number(r.expires_in||3500)-60)*1000;controls(true);baseline=await readBase();status('Conectado. Comparando anotações com o Drive…');await reconcile();window.atlasImages.hydrate(document.getElementById('editor'))}});try{tokenClient.requestAccessToken({prompt:interactive?'consent':''})}catch(e){if(interactive)fail(e)}}
+$('driveConnect').onclick=()=>connect(true);$('driveUpload').onclick=uploadManual;$('driveDownload').onclick=downloadManual;
+$('driveDisconnect').onclick=()=>{clearTimeout(timer);ready=false;dirty=false;if(token&&window.google?.accounts?.oauth2)google.accounts.oauth2.revoke(token,()=>{});token=null;folderId=null;fileId=null;controls(false);status('Desconectado · anotações locais preservadas')};
+window.addEventListener('online',()=>{if(authOk())reconcile()});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&authOk())poll()});setInterval(()=>{if(authOk())poll();else if(token){ready=false;status('Autorização expirada. Clique em Conectar Google para continuar sincronizando.',true)}},60000);
+// Silent authorization is best-effort: Google may require a user gesture after expiry.
+window.addEventListener('load',()=>setTimeout(()=>connect(false),1200));
 })();
 </script><script>
 (function(){
