@@ -86,6 +86,12 @@ body.sidebar-collapsed .sidebar{width:0!important;min-width:0!important;overflow
 .editor .checkrow>.checktext{display:block!important;flex:1!important;min-height:1.5em!important;white-space:pre-wrap;outline:none}
 .editor .checkrow>input[type=checkbox]{flex:none;align-self:flex-start;margin-top:4px!important}
 .editor .checkrow::selection,.editor .checktext::selection{background:#b6aafa}
+
+/* Centralized image with subsequent paragraph below */
+#editor.editor figure.note-figure.image-layout-center{float:none!important;clear:both!important;display:table!important;margin:12px auto!important;width:fit-content!important;max-width:100%!important;text-align:center!important}
+#editor.editor figure.note-figure.image-layout-center .image-frame{margin-left:auto!important;margin-right:auto!important;max-width:100%!important}
+#editor.editor figure.note-figure.image-layout-center figcaption{text-align:center!important}
+#editor.editor figure.note-figure.image-layout-center + p{clear:both!important;display:block!important;float:none!important;width:auto!important;text-align:left}
 </style><style>
 .atlas-drive{border-top:1px solid var(--line);padding:12px 14px;background:var(--panel);display:grid;gap:7px}.atlas-drive .drive-actions{display:flex;gap:6px;flex-wrap:wrap}.atlas-drive button{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:8px;border-radius:8px;font-size:11px;cursor:pointer}.atlas-drive button:hover{background:var(--accent-soft)}.atlas-drive .drive-primary{background:var(--accent);color:white;border-color:var(--accent)}.atlas-drive small{color:var(--muted);line-height:1.5}.atlas-drive .drive-status{font-size:11px;color:var(--muted);overflow-wrap:anywhere}.atlas-drive .drive-status.error{color:#d64e64}
 
@@ -114,7 +120,7 @@ body.sidebar-collapsed .sidebar{width:0!important;min-width:0!important;overflow
  restoreRange();
  const editor=$('editor'),fig=document.createElement('figure');
  fig.className='note-figure';fig.style.textAlign='center';fig.style.width='min(100%,560px)';
- fig.innerHTML=`<div class="image-frame" contenteditable="false" style="width:min(100%,560px)"><img src="${src}" alt="Imagem da anotação"><span class="resize-handle" title="Arraste para redimensionar"></span></div><div class="image-layout-tools" contenteditable="false"><button type="button" data-image-layout="left" title="Texto ao lado direito da imagem">Imagem à esquerda + texto</button><button type="button" data-image-layout="right" title="Texto ao lado esquerdo da imagem">Imagem à direita + texto</button><button type="button" data-image-layout="below" title="Texto abaixo da imagem">Texto abaixo</button></div><button type="button" class="caption-add" contenteditable="false">＋ Adicionar legenda</button><figcaption contenteditable="true" data-placeholder="Escreva a legenda..." hidden></figcaption>`;
+ fig.innerHTML=`<div class="image-frame" contenteditable="false" style="width:min(100%,560px)"><img src="${src}" alt="Imagem da anotação"><span class="resize-handle" title="Arraste para redimensionar"></span></div><div class="image-layout-tools" contenteditable="false"><button type="button" data-image-layout="left" title="Texto ao lado direito da imagem">Imagem à esquerda + texto</button><button type="button" data-image-layout="right" title="Texto ao lado esquerdo da imagem">Imagem à direita + texto</button><button type="button" data-image-layout="center" title="Centralizar imagem e continuar escrevendo abaixo">Imagem centralizada + texto abaixo</button><button type="button" data-image-layout="below" title="Texto abaixo da imagem">Texto abaixo</button></div><button type="button" class="caption-add" contenteditable="false">＋ Adicionar legenda</button><figcaption contenteditable="true" data-placeholder="Escreva a legenda..." hidden></figcaption>`;
  const paragraph=document.createElement('p');paragraph.className='image-flow-text';paragraph.appendChild(document.createElement('br'));
  const sel=window.getSelection(),r=sel.rangeCount?sel.getRangeAt(0):null;
  if(r&&editor.contains(r.commonAncestorContainer)){
@@ -134,11 +140,23 @@ function normalizeImageControls(){
  editor.querySelectorAll('figure.note-figure').forEach(fig=>{
   fig.classList.remove('image-selected','atlas-controls-open','caption-editing');
   const controls=fig.querySelector('.image-layout-tools');
-  if(controls)controls.setAttribute('contenteditable','false');
+  if(controls){
+   controls.setAttribute('contenteditable','false');
+   if(!controls.querySelector('[data-image-layout="center"]')){
+    const center=document.createElement('button');center.type='button';center.dataset.imageLayout='center';center.title='Centralizar imagem e continuar escrevendo abaixo';center.textContent='Imagem centralizada + texto abaixo';
+    const below=controls.querySelector('[data-image-layout="below"]');
+    if(below)controls.insertBefore(center,below);else controls.append(center);
+   }
+  }
   const add=fig.querySelector('.caption-add');
   const caption=fig.querySelector('figcaption');
   if(add){add.hidden=!!caption?.textContent.trim();add.setAttribute('contenteditable','false')}
   if(caption){caption.hidden=!caption.textContent.trim();caption.setAttribute('contenteditable','true')}
+  if(fig.dataset.layout==='center'||fig.classList.contains('image-layout-center')){
+   fig.classList.remove('image-wrap-left','image-wrap-right','image-layout-below');
+   fig.classList.add('image-layout-center');fig.style.float='none';fig.style.clear='both';
+   const next=fig.nextElementSibling;if(next?.tagName==='P'){next.style.clear='both';next.classList.add('image-text-below')}
+  }
   if(fig.dataset.layout==='below'||fig.classList.contains('image-layout-below')){
    fig.classList.remove('image-wrap-left','image-wrap-right');
    fig.classList.add('image-layout-below');fig.style.float='none';fig.style.clear='both';
@@ -155,7 +173,7 @@ function closeImageControls(){
 function setImageLayout(fig,mode){
  const editor=$('editor');
  if(!editor.contains(fig))return;
- fig.classList.remove('image-wrap-left','image-wrap-right','image-layout-below');
+ fig.classList.remove('image-wrap-left','image-wrap-right','image-layout-below','image-layout-center');
  if(mode==='left'||mode==='right'){
    fig.classList.add(mode==='left'?'image-wrap-left':'image-wrap-right');
    fig.dataset.layout=mode;
@@ -164,6 +182,14 @@ function setImageLayout(fig,mode){
    let next=fig.nextElementSibling;
    if(!next||next.tagName!=='P'){next=document.createElement('p');next.appendChild(document.createElement('br'));fig.after(next)}
    next.classList.remove('image-text-below');next.classList.add('image-flow-text');next.style.clear='none';
+   placeCaretAtStart(next);
+ }else if(mode==='center'){
+   fig.dataset.layout='center';fig.classList.add('image-layout-center');
+   fig.style.float='none';fig.style.clear='both';
+   let next=fig.nextElementSibling;
+   if(!next||next.tagName!=='P'){next=document.createElement('p');next.appendChild(document.createElement('br'));fig.after(next)}
+   next.classList.add('image-text-below','image-flow-text');
+   next.style.cssText+=';clear:both!important;display:block;float:none';
    placeCaretAtStart(next);
  }else{
    fig.dataset.layout='below';
