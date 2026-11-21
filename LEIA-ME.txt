@@ -1,0 +1,7 @@
+Momentum Lady Edition 4.3
+
+Novidades: preferências de resumo diário às 06:30, tarefas e eventos, atraso destacado, lembrete padrão 1h, personalização por tarefa, solicitação de permissão e prévia de notificação.
+
+IMPORTANTE: Esta versão NÃO envia notificações automáticas com o aplicativo fechado. O service worker está preparado para receber Web Push, mas ainda é necessário implantar agendador, cadastro de subscriptions e servidor de envio autenticado.
+
+Faça backup JSON antes de atualizar os arquivos no GitHub Pages. Não é preciso rodar SQL adicional nesta fase.
